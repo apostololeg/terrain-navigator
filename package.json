@@ -1,0 +1,57 @@
+{
+  "name": "terrain-navigator",
+  "version": "1.0.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/apostololeg/terrain-navigator.git"
+  },
+  "description": "Terrain navigator",
+  "bugs": {
+    "url": "https://github.com/apostololeg/terrain-navigator/issues"
+  },
+  "homepage": "https://github.com/apostololeg/terrain-navigator#readme",
+  "keywords": [
+    "threejs",
+    "3d",
+    "terrain",
+    "navigation"
+  ],
+  "author": "Oleh Apostol",
+  "license": "ISC",
+  "main": "dist/index.js",
+  "types": "dist/types",
+  "scripts": {
+    "build": "rollup -c --environment PORT=4444 --environment INCLUDE_DEPS,BUILD:production",
+    "dev": "rollup --config rollup.config.dev.js --environment PORT=4444 --environment INCLUDE_DEPS,BUILD:production --watch",
+    "release": "standard-version",
+    "release:patch": "yarn release -- --release-as patch",
+    "release:minor": "yarn release -- --release-as minor",
+    "release:major": "yarn release -- --release-as major",
+    "release:as": "yarn release -- --release-as"
+  },
+  "standard-version": {
+    "scripts": {
+      "postchangelog": "replace ' (#\\d+)' ' [`$1`](https://github.com/apostololeg/terrain-navigator/issues/$1)' CHANGELOG.md"
+    }
+  },
+  "dependencies": {
+    "@mapbox/sphericalmercator": "^1.2.0",
+    "dexie": "^3.2.2",
+    "resize-image-data": "^0.3.1",
+    "three": "^0.145.0"
+  },
+  "devDependencies": {
+    "@rollup/plugin-commonjs": "^23.0.2",
+    "@rollup/plugin-node-resolve": "^15.0.1",
+    "@types/three": "^0.144.0",
+    "replace": "^1.2.1",
+    "rollup": "2",
+    "rollup-plugin-delete": "^2.0.0",
+    "rollup-plugin-livereload": "^2.0.5",
+    "rollup-plugin-optimize-js": "^0.0.4",
+    "rollup-plugin-typescript2": "^0.32.1",
+    "rollup-plugin-uglify": "^6.0.4",
+    "standard-version": "^9.5.0",
+    "typescript": "^4.8.4"
+  }
+}
