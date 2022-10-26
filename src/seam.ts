@@ -124,8 +124,10 @@ function seamTiles(tileA, tileB) {
 function copyNormals(tileA, tileB) {
   const sideA = tileA.side;
   const sideB = tileB.side;
-  const normalsA = tileA.currentGeometry.attributes.normal;
-  const normalsB = tileB.currentGeometry.attributes.normal;
+  const normA = tileA.currentGeometry.attributes.normal;
+  const normB = tileB.currentGeometry.attributes.normal;
+  const normalsA = normA.array;
+  const normalsB = normB.array;
   const sideSizeA = Math.sqrt(normalsA.length / 3);
   const sideSizeB = Math.sqrt(normalsB.length / 3);
   const sideAScale = tileA.scale / tileB.scale;
@@ -136,12 +138,12 @@ function copyNormals(tileA, tileB) {
     const indexA = getIndex.a(i * sideAScale) * 3;
     const indexB = getIndex.b(i) * 3;
 
-    normalsB.array[indexB] = normalsA.array[indexA];
-    normalsB.array[indexB + 1] = normalsA.array[indexA + 1];
-    normalsB.array[indexB + 2] = normalsA.array[indexA + 2];
+    normalsB[indexB] = normalsA[indexA];
+    normalsB[indexB + 1] = normalsA[indexA + 1];
+    normalsB[indexB + 2] = normalsA[indexA + 2];
   }
 
-  normalsB.needsUpdate = true;
+  normB.needsUpdate = true;
 }
 
 export default function seam(tileA, tileB) {
