@@ -16,12 +16,15 @@ const scene: THREE.Scene;
 const observer: THREE.Object3D;
 
 const terrain = new TerrainNavigator({
+  mapBoxToken: MAPBOX_TOKEN,
   container: scene,
   material: new MeshPhongMaterial({
     color: 0x424240,
     shininess: 0.1,
     // wireframe: true,
   });,
+  zoom: 14,
+  scale: 0.125,
   getPosition() {
     return observer.target.position;
   },
