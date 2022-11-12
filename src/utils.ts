@@ -1,9 +1,11 @@
+import { Vector2 } from 'three';
 import {
-  HI_POLY_DIST,
   tileImageSize,
   tileSizeInMeters,
   yAmplitude,
   yOffset,
+  SIDE,
+  Side,
 } from './constants';
 
 export async function blobToImageData(blob) {
@@ -60,29 +62,35 @@ export function setVerticesData(geometry, data) {
   console.log(`sideSize=${sideSize} lastIndex=${lastIndex} \n\n`);
 }
 
-export const halfTileSizeInMeters = tileSizeInMeters / 2;
+export function getClosestCorner(p1, p2): Side {
+  const leftX = p1.x - halfTileSizeInMeters;
+  const rightX = p1.x + halfTileSizeInMeters;
+  const topZ = p1.z - halfTileSizeInMeters;
+  const bottomZ = p1.z + halfTileSizeInMeters;
+  const point = new Vector2(p2.x, p2.z);
+  const distances = {
+    [SIDE.TOP_LEFT]: point.distanceToSquared(new Vector2(leftX, topZ)),
+    [SIDE.TOP_RIGHT]: point.distanceToSquared(new Vector2(rightX, topZ)),
+    [SIDE.BOTTOM_LEFT]: point.distanceToSquared(new Vector2(leftX, bottomZ)),
+    [SIDE.BOTTOM_RIGHT]: point.distanceToSquared(new Vector2(rightX, bottomZ)),
+  };
 
-const isTileNearByCoord = (c, tc) => {
-  return (
-    c > tc - halfTileSizeInMeters - HI_POLY_DIST &&
-    c < tc + halfTileSizeInMeters + HI_POLY_DIST
-  );
-};
+  // @ts-ignore
+  const [side] = Object.entries(distances).sort((a, b) => a[1] - b[1])[0];
 
-export function isTileNear(x, z, tx, tz) {
-  return isTileNearByCoord(x, tx) && isTileNearByCoord(z, tz);
+  return side;
 }
 
-export function shiftArr(arr, delta, newItem) {
+export const halfTileSizeInMeters = tileSizeInMeters / 2;
+
+export function shiftArr(arr: any[], delta, newItem) {
   let oldItem;
 
   if (delta > 0) {
-    oldItem = arr[0];
-    arr.shift();
+    oldItem = arr.shift();
     arr.push(newItem);
   } else {
-    oldItem = arr[2];
-    arr.pop();
+    oldItem = arr.pop();
     arr.unshift(newItem);
   }
 

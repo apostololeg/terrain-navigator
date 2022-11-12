@@ -19,7 +19,7 @@
   "author": "Oleh Apostol",
   "license": "ISC",
   "main": "dist/index.js",
-  "types": "dist/types",
+  "types": "dist/types/index.d.ts",
   "scripts": {
     "build": "rollup -c --environment PORT=4444 --environment INCLUDE_DEPS,BUILD:production",
     "dev": "rollup --config rollup.config.dev.js --environment PORT=4444 --environment INCLUDE_DEPS,BUILD:production --watch",

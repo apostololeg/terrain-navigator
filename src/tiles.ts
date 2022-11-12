@@ -52,7 +52,7 @@ export default class Tiles {
     return `https://api.mapbox.com/v4/mapbox.${tileset}/${zoom}/${x}/${y}.pngraw?access_token=${token}`;
   };
 
-  async loadImageData(x, z, zoom) {
+  async loadImageData(x, z, zoom): Promise<ImageData> {
     const cache = await db.table('image').get({ slug: _(x, z, zoom) });
     if (cache) return cache.data;
 
