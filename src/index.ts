@@ -12,20 +12,15 @@ import {
 import SphericalMercator from '@mapbox/sphericalmercator';
 
 import {
-  tileImageSize,
-  tileSizeInMeters,
+  TILE_IMAGE_SIZE,
+  TILE_IMAGE_SIZE_IN_METERS,
   TILE_DELTA_BY_SIDE,
   TILE_SIDES,
   TILE_SEAMS,
   SEAM_TILES,
 } from './constants';
 import type { Side } from './constants';
-import {
-  getClosestCorner,
-  halfTileSizeInMeters,
-  setVerticesData,
-  shiftArr,
-} from './utils';
+import { getClosestCorner, setVerticesData, shiftArr } from './utils';
 import Tiles from './tiles';
 import type { HeightData } from './tiles';
 import seamTiles from './seam';
@@ -48,33 +43,51 @@ const _t = (): TileState => ({
 
 type Coords = { lat: number; lon: number };
 
+type Vector2D = { x: number; z: number };
+
 export type TerrainParams = {
   mapBoxToken: string;
   container: Object3D;
   material: Material;
   coords?: Coords;
   zoom: number;
-  position?: number[]; // [x,z]
+  minZoom?: number;
+  maxZoom?: number;
+  position?: Vector2D;
+  offset: Vector2D;
   scale?: number; // 0..1
   getPosition: () => Vector3;
   setPosition: (position: Partial<Vector3>) => void;
-  onTileRebuilded?: (tile: TileState, oldObject?: Object3D) => void;
+  onTileRebuilded?: (
+    levelNumber: number,
+    tile: TileState,
+    oldObject?: Object3D
+  ) => void;
 };
 
 export default class Terrain {
-  params: TerrainParams;
+  root?: Terrain;
+  isRoot: boolean;
+  params?: TerrainParams;
+
   container = new Group();
   merc = new SphericalMercator({
-    size: tileImageSize,
+    size: TILE_IMAGE_SIZE,
     // antimeridian: true,
   });
 
   inited = false;
   scale = 1;
+  zoomScale = 1;
+  levelNumber = 0;
+  subLevel: Terrain;
   offset = { x: 0, z: 0 };
   position = { x: 0, z: 0 }; // observer position with offset
   coords = { lat: 0, lon: 0 };
   tileNumber = { x: 0, z: 0 };
+  tileImageSize: number;
+  tileSizeInMeters: number;
+  halfTileSizeInMeters: number;
   tilesStore;
   tileBySide = {}; // [side]: TileState
   tilesDeltas = {}; // [side]: [dx, dz]
@@ -88,33 +101,62 @@ export default class Terrain {
   rebuildPromises: { [side: Side]: Promise<void> } = {}; // [side]: Promise<void>
   rebuildSeams: { [side: Side]: true } = {}; // [seam position]: true
 
-  constructor(params: TerrainParams) {
-    const { coords, position, zoom, mapBoxToken } = params;
+  constructor(params: TerrainParams, root?: Terrain) {
+    const { coords, position, zoom, scale, mapBoxToken } = params;
+    const minZoom = params.minZoom || zoom;
 
-    if (params.scale) this.scale = params.scale;
+    this.isRoot = !root;
+    this.root = root || this;
     this.params = params;
-    this.coords = coords;
-    this.tilesStore = new Tiles({ mapBoxToken });
+    if (scale) this.scale = scale;
 
-    if (position) {
-      const [lon, lat] = this.merc.ll(position, zoom);
-      this.coords = { lat, lon };
+    if (this.isRoot) {
+      if (position) {
+        const [lon, lat] = this.merc.ll(position, zoom);
+        this.coords = { lat, lon };
+      } else if (!coords) {
+        throw new Error('coords or position is required');
+      } else {
+        this.coords = { lat: coords.lat, lon: coords.lon };
+      }
+
+      this.tilesStore = new Tiles({ mapBoxToken });
     }
 
-    if (!this.coords) {
-      throw new Error('coords or position is required');
+    if (typeof minZoom === 'number') {
+      const newZoom = zoom - 2;
+
+      if (!this.isRoot) {
+        this.zoomScale = (this.root.params.zoom - zoom) * 2;
+      }
+
+      this.tileImageSize = TILE_IMAGE_SIZE; // * this.zoomScale;
+      this.tileSizeInMeters = TILE_IMAGE_SIZE_IN_METERS * this.zoomScale;
+      this.halfTileSizeInMeters = this.tileSizeInMeters / 2;
+
+      this.log('this.tileSizeInMeters', this.tileSizeInMeters);
+
+      if (newZoom >= 0 && newZoom < minZoom) return;
+
+      this.subLevel = new Terrain(
+        {
+          ...params,
+          zoom: newZoom,
+        },
+        this.root
+      );
     }
   }
 
   async start() {
-    this.updateHorizontalPosition();
+    if (this.isRoot) this.updateHorizontalPosition();
     await this.update();
-    this.updateVerticalPosition();
+    if (this.isRoot) this.updateVerticalPosition();
     this.inited = true;
   }
 
   updateHorizontalPosition() {
-    const { lat, lon } = this.coords;
+    const { lat, lon } = this.root.coords;
     const [x, z] = this.merc.px([lon, lat], this.params.zoom);
 
     // offset fix objects shaking when camera moves
@@ -132,11 +174,10 @@ export default class Terrain {
   }
 
   shift() {
-    const { x, z } = this.position;
-    const [nx, nz] = [
-      Math.floor(x / tileImageSize),
-      Math.floor(z / tileImageSize),
-    ];
+    const { x, z } = this.root.position;
+    const imageSize = this.tileImageSize * this.zoomScale;
+    const nx = Math.floor(x / imageSize);
+    const nz = Math.floor(z / imageSize);
     let dx = 0;
     let dz = 0;
 
@@ -164,25 +205,34 @@ export default class Terrain {
     }
   }
 
-  update = () => {
+  update = async () => {
     const { x, z } = this.params.getPosition();
 
-    this.position = {
-      x: x + this.offset.x,
-      z: z + this.offset.z,
-    };
+    if (this.isRoot) {
+      const { offset } = this.root;
+
+      this.position = {
+        x: x + offset.x,
+        z: z + offset.z,
+      };
+    }
 
     this.shift();
-    return this.rebuild();
+    await this.rebuild();
+    this.subLevel?.update();
   };
 
   rebuild(): Promise<void[]> {
     const id = Math.random();
     const pos = this.params.getPosition();
     const currTilePos = this.getTilePos(0, 0);
-    const newSide = getClosestCorner(pos, currTilePos);
+    const newSide = getClosestCorner(
+      pos,
+      currTilePos,
+      this.halfTileSizeInMeters
+    );
 
-    console.log('newSide', newSide);
+    this.log('newSide', newSide);
 
     if (this.currTileSide === newSide) return;
 
@@ -206,15 +256,15 @@ export default class Terrain {
   }
 
   async rebuildTile(id, dx, dz, side) {
-    const { zoom, material, getPosition, onTileRebuilded } = this.params;
+    const { material, getPosition, onTileRebuilded } = this.params;
     const { x, z } = getPosition();
     const tile = this.tileBySide[side];
     const pos = this.getTilePos(dx, dz);
-    const size = tileImageSize * this.scale + 1;
+    const size = (this.root.tileImageSize / this.zoomScale) * this.scale + 1;
 
-    console.log(`${x}:${z}\t${pos.x}:${pos.z}`);
+    this.log(`${x}:${z}\t${pos.x}:${pos.z}\t${size}`);
 
-    tile.heightData = await this.tilesStore.getTile(pos.nx, pos.nz, zoom, size);
+    tile.heightData = await this.getTile(pos.nx, pos.nz, size);
 
     if (id !== this.rebuildId) return;
 
@@ -228,14 +278,14 @@ export default class Terrain {
 
     TILE_SEAMS[side].forEach(seam => this.seam(id, seam));
 
-    onTileRebuilded(tile, oldObject);
+    onTileRebuilded(this.levelNumber, tile, oldObject);
   }
 
   buildTileGeometry(pos, heightData) {
     const segmentCount = Math.sqrt(heightData.length) - 1;
     const geometry = new PlaneGeometry(
-      tileSizeInMeters,
-      tileSizeInMeters,
+      this.tileSizeInMeters,
+      this.tileSizeInMeters,
       segmentCount,
       segmentCount
     );
@@ -255,15 +305,21 @@ export default class Terrain {
     }
   };
 
+  getTile(nx, nz, size) {
+    const { zoom } = this.params;
+    return (this.root || this).tilesStore.getTile(nx, nz, zoom, size);
+  }
+
   getTilePos(dx, dz) {
     const nx = this.tileNumber.x + dx;
     const nz = this.tileNumber.z + dz;
+    const { offset } = this.root;
 
     return {
       nx,
       nz,
-      x: nx * tileSizeInMeters - this.offset.x + halfTileSizeInMeters,
-      z: nz * tileSizeInMeters - this.offset.z + halfTileSizeInMeters,
+      x: nx * this.tileSizeInMeters - offset.x + this.halfTileSizeInMeters,
+      z: nz * this.tileSizeInMeters - offset.z + this.halfTileSizeInMeters,
     };
   }
 
@@ -281,9 +337,13 @@ export default class Terrain {
 
     const [tileA, tileB] = tilesSides.map(side => this.tileBySide[side]);
 
-    console.log('seam', seam, '|', tileA.side, tileB.side);
+    this.log('seam', seam, '|', tileA.side, tileB.side);
     seamTiles(tileA, tileB);
 
     delete this.rebuildSeams[seam];
+  }
+
+  log(...args) {
+    console.log(`[${this.levelNumber}]`, ...args);
   }
 }

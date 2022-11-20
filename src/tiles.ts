@@ -1,7 +1,6 @@
 import Dexie from 'dexie';
 import resizeImageData from 'resize-image-data';
 
-import { tileImageSize } from './constants';
 import { blobToImageData, imageToHeightData } from './utils';
 
 export type HeightData = number[];
@@ -9,7 +8,7 @@ export type HeightData = number[];
 const _ = (...args) => args.join('_');
 const db = new Dexie('heightmap');
 
-db.version(1).stores({
+db.version(2).stores({
   height: 'slug,data',
   image: 'slug,data',
 });
@@ -27,6 +26,7 @@ export default class Tiles {
     await init;
 
     let slug = _(x, z, zoom, size);
+    // if (zoom === 12) await db.table('height').delete(slug);
     let item = await db.table('height').get({ slug });
     let data = item?.data;
 
@@ -39,10 +39,10 @@ export default class Tiles {
     return data;
   }
 
-  async getImageData(x, z, zoom, size = tileImageSize) {
+  async getImageData(x, z, zoom, size) {
     const imageData = await this.loadImageData(x, z, zoom);
 
-    return size !== tileImageSize
+    return size !== imageData.height
       ? resizeImageData(imageData, size, size)
       : imageData;
   }

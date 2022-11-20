@@ -1,18 +1,12 @@
 import { Vector2 } from 'three';
-import {
-  tileImageSize,
-  tileSizeInMeters,
-  yAmplitude,
-  yOffset,
-  SIDE,
-  Side,
-} from './constants';
+import { yAmplitude, yOffset, SIDE, Side, TILE_IMAGE_SIZE } from './constants';
 
 export async function blobToImageData(blob) {
   let blobUrl = URL.createObjectURL(blob);
+  const size = TILE_IMAGE_SIZE;
 
   return new Promise((resolve, reject) => {
-    const img = new Image(tileImageSize, tileImageSize);
+    const img = new Image(size, size);
 
     img.onload = () => resolve(img);
     img.onerror = err => reject(err);
@@ -20,11 +14,11 @@ export async function blobToImageData(blob) {
   }).then((img: HTMLImageElement) => {
     URL.revokeObjectURL(blobUrl);
     const canvas = document.createElement('canvas');
-    canvas.width = tileImageSize;
-    canvas.height = tileImageSize;
+    canvas.width = size;
+    canvas.height = size;
     const ctx = canvas.getContext('2d');
     ctx.drawImage(img, 0, 0);
-    return ctx.getImageData(0, 0, tileImageSize, tileImageSize); // some browsers synchronously decode image here
+    return ctx.getImageData(0, 0, size, size); // some browsers synchronously decode image here
   });
 }
 
@@ -62,7 +56,7 @@ export function setVerticesData(geometry, data) {
   console.log(`sideSize=${sideSize} lastIndex=${lastIndex} \n\n`);
 }
 
-export function getClosestCorner(p1, p2): Side {
+export function getClosestCorner(p1, p2, halfTileSizeInMeters): Side {
   const leftX = p1.x - halfTileSizeInMeters;
   const rightX = p1.x + halfTileSizeInMeters;
   const topZ = p1.z - halfTileSizeInMeters;
@@ -80,8 +74,6 @@ export function getClosestCorner(p1, p2): Side {
 
   return side;
 }
-
-export const halfTileSizeInMeters = tileSizeInMeters / 2;
 
 export function shiftArr(arr: any[], delta, newItem) {
   let oldItem;

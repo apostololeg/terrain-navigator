@@ -1,15 +1,6 @@
 import { SIDE } from './constants';
 
-const {
-  TOP,
-  TOP_LEFT,
-  TOP_RIGHT,
-  LEFT,
-  RIGHT,
-  BOTTOM,
-  BOTTOM_LEFT,
-  BOTTOM_RIGHT,
-} = SIDE;
+const { TOP, LEFT, RIGHT, BOTTOM } = SIDE;
 
 const getMiddlePoint = (first, last) => first + (last - first) / 2;
 

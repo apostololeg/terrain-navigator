@@ -1,6 +1,5 @@
-export const tileImageSize = 256;
-export const tileSizeInMeters = tileImageSize;
-export const HI_POLY_DIST = 0.2 * tileSizeInMeters;
+export const TILE_IMAGE_SIZE = 256;
+export const TILE_IMAGE_SIZE_IN_METERS = TILE_IMAGE_SIZE;
 export const yAmplitude = 0.04;
 export const yOffset = 0;
 
