@@ -1,5 +1,6 @@
 import {
   Mesh,
+  Box3,
   Group,
   Object3D,
   Matrix4,
@@ -8,7 +9,9 @@ import {
   Raycaster,
   Material,
   PlaneGeometry,
+  BoxGeometry,
 } from 'three';
+import { CSG } from 'three-csg-ts';
 import SphericalMercator from '@mapbox/sphericalmercator';
 
 import {
@@ -25,11 +28,18 @@ import Tiles from './tiles';
 import type { HeightData } from './tiles';
 import seamTiles from './seam';
 
+type TilePos = {
+  x: number;
+  z: number;
+  nx: number;
+  nz: number;
+};
+
 type TileState = {
   side?: Side;
   size?: number;
   scale: number;
-  pos?: Vector2;
+  pos?: TilePos;
   heightData?: HeightData;
   geometry: PlaneGeometry;
   object?: Object3D;
@@ -84,6 +94,8 @@ export default class Terrain {
   offset = { x: 0, z: 0 };
   position = { x: 0, z: 0 }; // observer position with offset
   coords = { lat: 0, lon: 0 };
+  parentLevelCenterDot: Vector2;
+  material: Material;
   tileNumber = { x: 0, z: 0 };
   tileImageSize: number;
   tileSizeInMeters: number;
@@ -102,7 +114,7 @@ export default class Terrain {
   rebuildSeams: { [side: Side]: true } = {}; // [seam position]: true
 
   constructor(params: TerrainParams, root?: Terrain) {
-    const { coords, position, zoom, scale, mapBoxToken } = params;
+    const { coords, position, zoom, scale, material, mapBoxToken } = params;
     const minZoom = params.minZoom || zoom;
 
     this.isRoot = !root;
@@ -124,7 +136,7 @@ export default class Terrain {
     }
 
     if (typeof minZoom === 'number') {
-      const newZoom = zoom - 2;
+      const newZoom = zoom - 1;
 
       if (!this.isRoot) {
         this.zoomScale = (this.root.params.zoom - zoom) * 2;
@@ -205,7 +217,7 @@ export default class Terrain {
     }
   }
 
-  update = async () => {
+  update = async (centerDot?: Vector2) => {
     const { x, z } = this.params.getPosition();
 
     if (this.isRoot) {
@@ -217,9 +229,23 @@ export default class Terrain {
       };
     }
 
+    if (centerDot) {
+      this.parentLevelCenterDot = centerDot;
+    }
+
     this.shift();
     await this.rebuild();
-    this.subLevel?.update();
+
+    if (this.subLevel) {
+      const leftTopTile = this.tiles[0][0];
+
+      this.subLevel.update(
+        new Vector2(
+          leftTopTile.pos.x + this.halfTileSizeInMeters,
+          leftTopTile.pos.z + this.halfTileSizeInMeters
+        )
+      );
+    }
   };
 
   rebuild(): Promise<void[]> {
@@ -256,7 +282,7 @@ export default class Terrain {
   }
 
   async rebuildTile(id, dx, dz, side) {
-    const { material, getPosition, onTileRebuilded } = this.params;
+    const { getPosition, onTileRebuilded } = this.params;
     const { x, z } = getPosition();
     const tile = this.tileBySide[side];
     const pos = this.getTilePos(dx, dz);
@@ -264,6 +290,7 @@ export default class Terrain {
 
     this.log(`${x}:${z}\t${pos.x}:${pos.z}\t${size}`);
 
+    tile.pos = pos;
     tile.heightData = await this.getTile(pos.nx, pos.nz, size);
 
     if (id !== this.rebuildId) return;
@@ -272,16 +299,20 @@ export default class Terrain {
     const oldObject = tile.object;
 
     this.removeTile(tile);
-    tile.object = new Mesh(geometry, material.clone());
-    tile.object.receiveShadow = true;
-    tile.object.castShadow = true;
+
+    let object = new Mesh(geometry, this.getTileMaterial(pos));
+
+    object.receiveShadow = true;
+    object.castShadow = true;
+
+    tile.object = object;
 
     TILE_SEAMS[side].forEach(seam => this.seam(id, seam));
 
     onTileRebuilded(this.levelNumber, tile, oldObject);
   }
 
-  buildTileGeometry(pos, heightData) {
+  buildTileGeometry(pos: TilePos, heightData) {
     const segmentCount = Math.sqrt(heightData.length) - 1;
     const geometry = new PlaneGeometry(
       this.tileSizeInMeters,
@@ -310,7 +341,7 @@ export default class Terrain {
     return (this.root || this).tilesStore.getTile(nx, nz, zoom, size);
   }
 
-  getTilePos(dx, dz) {
+  getTilePos(dx, dz): TilePos {
     const nx = this.tileNumber.x + dx;
     const nz = this.tileNumber.z + dz;
     const { offset } = this.root;
@@ -321,6 +352,19 @@ export default class Terrain {
       x: nx * this.tileSizeInMeters - offset.x + this.halfTileSizeInMeters,
       z: nz * this.tileSizeInMeters - offset.z + this.halfTileSizeInMeters,
     };
+  }
+
+  getTileMaterial(pos) {
+    const material = this.root.params.material.clone();
+
+    if (this.parentLevelCenterDot) {
+      const tilePos = new Vector2(pos.x, pos.z);
+      const dist = this.parentLevelCenterDot.add(tilePos).normalize();
+
+      this.log('direction', dist?.length());
+    }
+
+    return material;
   }
 
   async seam(id, seam) {
