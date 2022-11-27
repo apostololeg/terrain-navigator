@@ -53,7 +53,7 @@ export function setVerticesData(geometry, data) {
     }
   }
 
-  console.log(`sideSize=${sideSize} lastIndex=${lastIndex} \n\n`);
+  // console.log(`sideSize=${sideSize} lastIndex=${lastIndex} \n\n`);
 }
 
 export function getClosestCorner(p1, p2, halfTileSizeInMeters): Side {
