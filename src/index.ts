@@ -39,13 +39,17 @@ type TileState = {
   pos?: TilePos;
   heightData?: HeightData;
   geometry: PlaneGeometry;
+  material?: Material;
+  clippingPlanes?: Plane[];
   object?: Object3D<Mesh<PlaneGeometry, Material>>;
   isNear?: boolean;
+  // needsRebuild?: boolean;
 };
 
 const _t = (): TileState => ({
   geometry: null,
   scale: 0,
+  // needsRebuild: true,
 });
 
 type Coords = { lat: number; lon: number };
@@ -111,6 +115,8 @@ export default class Terrain {
   rebuildPromises: { [side: Side]: Promise<void> } = {}; // [side]: Promise<void>
   rebuildSeams: { [side: Side]: true } = {}; // [seam position]: true
 
+  log: (...args: any[]) => void;
+
   constructor(params: TerrainParams, root?: Terrain) {
     const { coords, position, zoom, scale, levelNumber, mapBoxToken } = params;
     const minZoom = params.minZoom || zoom;
@@ -134,6 +140,7 @@ export default class Terrain {
     }
 
     this.levelNumber = levelNumber ?? 0;
+    this.log = console.log.bind(this, `${this.levelNumber} ::`);
 
     if (typeof minZoom === 'number') {
       const newZoom = zoom - 1;
@@ -238,7 +245,8 @@ export default class Terrain {
     await this.rebuild();
 
     if (this.subLevel) {
-      const leftTopTile = this.tiles[0][0];
+      await this.rebuildPromises['top-left'];
+      const leftTopTile = this.tileBySide['top-left'];
       const centralTilePos = [
         leftTopTile.pos.x + this.halfTileSizeInMeters,
         leftTopTile.pos.z + this.halfTileSizeInMeters,
@@ -258,10 +266,13 @@ export default class Terrain {
       this.halfTileSizeInMeters
     );
 
-    // this.log('newSide', newSide);
+    this.log('newSide', newSide);
 
     if (this.currTileSide === newSide) {
-      this.tiles.flat().forEach(this.updateClipingPlanes);
+      this.tiles.flat().forEach(tile => {
+        this.updateClipingPlanes(tile);
+        // this.applyClipingPlanes(tile);
+      });
       return;
     }
 
@@ -287,31 +298,36 @@ export default class Terrain {
   async rebuildTile(id, dx, dz, side) {
     const { onTileRebuilded } = this.params;
     const tile = this.tileBySide[side];
+    const oldObject = tile.object;
+
+    // if (tile.needsRebuild) {
+    this.log('rebuildTile', tile.side);
+
     const pos = this.getTilePos(dx, dz);
     const size = (this.root.tileImageSize / this.zoomScale) * this.scale + 1;
 
     tile.pos = pos;
+
+    this.setTileMaterial(tile);
+    this.updateClipingPlanes(tile);
+
     tile.heightData = await this.getTile(pos.nx, pos.nz, size);
 
     if (id !== this.rebuildId) return;
 
-    const geometry = this.buildTileGeometry(pos, tile.heightData);
-    const oldObject = tile.object;
+    tile.geometry = this.buildTileGeometry(pos, tile.heightData);
 
     this.removeTile(tile);
 
-    let object = new Mesh(geometry, this.root.params.material.clone());
+    tile.object = new Mesh(tile.geometry, tile.material);
+    tile.object.receiveShadow = true;
+    tile.object.castShadow = true;
 
-    object.receiveShadow = true;
-    object.castShadow = true;
-
-    tile.object = object;
-
-    this.updateClipingPlanes(tile);
+    // delete tile.needsRebuild;
+    onTileRebuilded(this.levelNumber, tile, oldObject);
+    // }
 
     TILE_SEAMS[side].forEach(seam => this.seam(id, seam));
-
-    onTileRebuilded(this.levelNumber, tile, oldObject);
   }
 
   buildTileGeometry(pos: TilePos, heightData) {
@@ -356,8 +372,8 @@ export default class Terrain {
     };
   }
 
-  getClipingPlanes(tile: TileState): Plane[] | null {
-    if (!this.parentLevelCenterDot) return null;
+  getClipingPlanes(tile: TileState): Plane[] {
+    if (!this.parentLevelCenterDot) return [];
 
     const { pos } = tile;
     const [x, z] = this.parentLevelCenterDot;
@@ -367,13 +383,33 @@ export default class Terrain {
     if (dx === 0 && dz === 0) {
       switch (tile.side) {
         case 'top-left':
-          return [new Plane(new Vector3(-1, 0, 0), pos.x * 3)];
+          return [
+            new Plane(
+              new Vector3(-1, 0, 0),
+              -Math.abs(pos.x) - this.halfTileSizeInMeters
+            ),
+          ];
         case 'top-right':
-          return [new Plane(new Vector3(1, 0, 0), -pos.x * 3)];
+          return [
+            new Plane(
+              new Vector3(1, 0, 0),
+              -Math.abs(pos.x) - this.halfTileSizeInMeters
+            ),
+          ];
         case 'bottom-left':
-          return [new Plane(new Vector3(0, 0, -1), -pos.z * 3)];
+          return [
+            new Plane(
+              new Vector3(0, 0, -1),
+              -Math.abs(pos.z) - this.halfTileSizeInMeters
+            ),
+          ];
         case 'bottom-right':
-          return [new Plane(new Vector3(0, 0, 1), -pos.z * 3)];
+          return [
+            new Plane(
+              new Vector3(0, 0, 1),
+              -Math.abs(pos.z) - this.halfTileSizeInMeters
+            ),
+          ];
       }
     }
 
@@ -420,14 +456,30 @@ export default class Terrain {
       ];
     }
 
-    return null;
+    return [];
+  }
+
+  setTileMaterial(tile: TileState) {
+    if (tile.material) return;
+
+    tile.material = this.root.params.material.clone();
+    // tile.material.clippingPlanes = tile.clippingPlanes;
+    // tile.material.clipIntersection = true;
   }
 
   updateClipingPlanes = (tile: TileState) => {
-    this.log('updateClipingPlanes', tile.side);
-    const clippingPlanes = this.getClipingPlanes(tile);
-    // @ts-ignore
-    const { material } = tile.object;
+    if (this.levelNumber === 0) return;
+
+    tile.clippingPlanes = this.getClipingPlanes(tile);
+    this.applyClipingPlanes(tile);
+    // console.log('updateClipingPlanes', tile.side, tile.clippingPlanes);
+    // if (!tile.clippingPlanes) debugger;
+  };
+
+  applyClipingPlanes = (tile: TileState) => {
+    if (this.levelNumber === 0) return;
+
+    const { material, clippingPlanes } = tile;
 
     if (clippingPlanes) {
       material.clippingPlanes = clippingPlanes;
@@ -457,8 +509,4 @@ export default class Terrain {
 
     delete this.rebuildSeams[seam];
   }
-
-  log = (...args) => {
-    console.log(`${this.levelNumber} ::`, ...args);
-  };
 }
