@@ -4,6 +4,7 @@ export const yAmplitude = 0.04;
 export const yOffset = 0;
 
 export const SIDE = {
+  CENTER: 'center',
   TOP: 'top',
   TOP_LEFT: 'top-left',
   TOP_RIGHT: 'top-right',

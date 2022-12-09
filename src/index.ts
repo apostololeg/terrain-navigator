@@ -18,6 +18,7 @@ import {
   TILE_SIDES,
   TILE_SEAMS,
   SEAM_TILES,
+  SIDE,
 } from './constants';
 import type { Side } from './constants';
 import { getClosestCorner, setVerticesData, shiftArr } from './utils';
@@ -40,6 +41,7 @@ type TileState = {
   heightData?: HeightData;
   geometry: PlaneGeometry;
   material?: Material;
+  clipSide?: Side;
   clippingPlanes?: Plane[];
   object?: Object3D<Mesh<PlaneGeometry, Material>>;
   isNear?: boolean;
@@ -64,6 +66,7 @@ export type TerrainParams = {
   zoom: number;
   minZoom?: number;
   maxZoom?: number;
+  zoomScale?: number;
   levelNumber?: number;
   position?: Vector2D;
   offset: Vector2D;
@@ -118,7 +121,15 @@ export default class Terrain {
   log: (...args: any[]) => void;
 
   constructor(params: TerrainParams, root?: Terrain) {
-    const { coords, position, zoom, scale, levelNumber, mapBoxToken } = params;
+    const {
+      coords,
+      position,
+      zoom,
+      zoomScale,
+      scale,
+      levelNumber,
+      mapBoxToken,
+    } = params;
     const minZoom = params.minZoom || zoom;
 
     this.isRoot = !root;
@@ -140,29 +151,33 @@ export default class Terrain {
     }
 
     this.levelNumber = levelNumber ?? 0;
+    this.zoomScale = Math.pow(2, this.levelNumber);
+
     this.log = console.log.bind(this, `${this.levelNumber} ::`);
 
     if (typeof minZoom === 'number') {
       const newZoom = zoom - 1;
 
-      if (!this.isRoot) {
-        this.zoomScale = (this.root.params.zoom - zoom) * 2;
-      }
+      // if (zoomScale) this.zoomScale = zoomScale;
+
+      this.log('zoomScale', this.zoomScale);
 
       this.tileImageSize = TILE_IMAGE_SIZE; // * this.zoomScale;
       this.tileSizeInMeters = TILE_IMAGE_SIZE_IN_METERS * this.zoomScale;
       this.halfTileSizeInMeters = this.tileSizeInMeters / 2;
 
-      if (newZoom >= 0 && newZoom < minZoom) return;
-
-      this.subLevel = new Terrain(
-        {
-          ...params,
-          zoom: newZoom,
-          levelNumber: this.levelNumber + 1,
-        },
-        this.root
-      );
+      if (newZoom >= minZoom) {
+        this.subLevel = new Terrain(
+          {
+            ...params,
+            zoom: newZoom,
+            // zoomScale: Math.pow(2, this.levelNumber),
+            // zoomScale: this.zoomScale + (this.isRoot ? 1 : 2),
+            levelNumber: this.levelNumber + 1,
+          },
+          this.root
+        );
+      }
     }
   }
 
@@ -256,7 +271,7 @@ export default class Terrain {
     }
   };
 
-  rebuild(): Promise<void[]> {
+  async rebuild(): Promise<void[]> {
     const id = Math.random();
     const pos = this.params.getPosition();
     const currTilePos = this.getTilePos(0, 0);
@@ -292,7 +307,7 @@ export default class Terrain {
       this.rebuildPromises[side] = this.rebuildTile(id, dz, dx, side);
     });
 
-    return Promise.all(Object.values(this.rebuildPromises));
+    await Promise.all(Object.values(this.rebuildPromises));
   }
 
   async rebuildTile(id, dx, dz, side) {
@@ -373,91 +388,124 @@ export default class Terrain {
   }
 
   getClipingPlanes(tile: TileState): Plane[] {
-    if (!this.parentLevelCenterDot) return [];
+    const { clipSide, pos } = tile;
+
+    if (!clipSide) return [];
+
+    switch (clipSide) {
+      case SIDE.CENTER:
+        switch (tile.side) {
+          case SIDE.TOP_LEFT:
+            return [
+              new Plane(
+                new Vector3(-1, 0, 0),
+                -Math.abs(pos.x) - this.halfTileSizeInMeters
+              ),
+            ];
+          case SIDE.TOP_RIGHT:
+            return [
+              new Plane(
+                new Vector3(1, 0, 0),
+                -Math.abs(pos.x) - this.halfTileSizeInMeters
+              ),
+            ];
+          case SIDE.BOTTOM_LEFT:
+            return [
+              new Plane(
+                new Vector3(0, 0, -1),
+                -Math.abs(pos.z) - this.halfTileSizeInMeters
+              ),
+            ];
+          case SIDE.BOTTOM_RIGHT:
+            return [
+              new Plane(
+                new Vector3(0, 0, 1),
+                -Math.abs(pos.z) - this.halfTileSizeInMeters
+              ),
+            ];
+        }
+
+        break;
+
+      case SIDE.RIGHT:
+        return [new Plane(new Vector3(-1, 0, 0), pos.x)];
+
+      case SIDE.LEFT:
+        return [new Plane(new Vector3(1, 0, 0), -pos.x)];
+
+      case SIDE.BOTTOM:
+        return [new Plane(new Vector3(0, 0, -1), pos.z)];
+
+      case SIDE.TOP:
+        return [new Plane(new Vector3(0, 0, 1), -pos.z)];
+
+      case SIDE.BOTTOM_RIGHT:
+        return [
+          new Plane(new Vector3(-1, 0, 0), pos.x),
+          new Plane(new Vector3(0, 0, -1), pos.z),
+        ];
+
+      case SIDE.BOTTOM_LEFT:
+        return [
+          new Plane(new Vector3(1, 0, 0), -pos.x),
+          new Plane(new Vector3(0, 0, -1), pos.z),
+        ];
+
+      case SIDE.TOP_RIGHT:
+        return [
+          new Plane(new Vector3(-1, 0, 0), pos.x),
+          new Plane(new Vector3(0, 0, 1), -pos.z),
+        ];
+
+      case SIDE.TOP_LEFT:
+        return [
+          new Plane(new Vector3(1, 0, 0), -pos.x),
+          new Plane(new Vector3(0, 0, 1), -pos.z),
+        ];
+    }
+
+    return [];
+  }
+
+  getClipSide = (tile: TileState) => {
+    if (!this.parentLevelCenterDot) return null;
 
     const { pos } = tile;
     const [x, z] = this.parentLevelCenterDot;
     const dx = pos.x - x;
     const dz = pos.z - z;
 
-    if (dx === 0 && dz === 0) {
-      switch (tile.side) {
-        case 'top-left':
-          return [
-            new Plane(
-              new Vector3(-1, 0, 0),
-              -Math.abs(pos.x) - this.halfTileSizeInMeters
-            ),
-          ];
-        case 'top-right':
-          return [
-            new Plane(
-              new Vector3(1, 0, 0),
-              -Math.abs(pos.x) - this.halfTileSizeInMeters
-            ),
-          ];
-        case 'bottom-left':
-          return [
-            new Plane(
-              new Vector3(0, 0, -1),
-              -Math.abs(pos.z) - this.halfTileSizeInMeters
-            ),
-          ];
-        case 'bottom-right':
-          return [
-            new Plane(
-              new Vector3(0, 0, 1),
-              -Math.abs(pos.z) - this.halfTileSizeInMeters
-            ),
-          ];
-      }
+    const sameHoriz = dx === 0;
+    const sameVert = dz === 0;
+    const halfToLeft = dx === -this.halfTileSizeInMeters;
+    const halfToRight = dx === this.halfTileSizeInMeters;
+    const halfToTop = dz === -this.halfTileSizeInMeters;
+    const halfToBottom = dz === this.halfTileSizeInMeters;
+
+    if (sameHoriz && sameVert) return SIDE.CENTER;
+
+    if (sameVert) {
+      if (halfToLeft) return SIDE.RIGHT;
+      if (halfToRight) return SIDE.LEFT;
     }
 
-    if (dx === -this.halfTileSizeInMeters && dz === 0)
-      return [new Plane(new Vector3(-1, 0, 0), pos.x)];
-
-    if (dx === this.halfTileSizeInMeters && dz === 0)
-      return [new Plane(new Vector3(1, 0, 0), -pos.x)];
-
-    if (dx === 0 && dz === -this.halfTileSizeInMeters)
-      return [new Plane(new Vector3(0, 0, -1), pos.z)];
-
-    if (dx === 0 && dz === this.halfTileSizeInMeters)
-      return [new Plane(new Vector3(0, 0, 1), -pos.z)];
-
-    if (
-      dx === -this.halfTileSizeInMeters &&
-      dz === -this.halfTileSizeInMeters
-    ) {
-      return [
-        new Plane(new Vector3(-1, 0, 0), pos.x),
-        new Plane(new Vector3(0, 0, -1), pos.z),
-      ];
+    if (sameHoriz) {
+      if (halfToTop) return SIDE.BOTTOM;
+      if (halfToBottom) return SIDE.TOP;
     }
 
-    if (dx === this.halfTileSizeInMeters && dz === -this.halfTileSizeInMeters) {
-      return [
-        new Plane(new Vector3(1, 0, 0), -pos.x),
-        new Plane(new Vector3(0, 0, -1), pos.z),
-      ];
+    if (halfToTop) {
+      if (halfToLeft) return SIDE.BOTTOM_RIGHT;
+      if (halfToRight) return SIDE.BOTTOM_LEFT;
     }
 
-    if (dx === -this.halfTileSizeInMeters && dz === this.halfTileSizeInMeters) {
-      return [
-        new Plane(new Vector3(-1, 0, 0), pos.x),
-        new Plane(new Vector3(0, 0, 1), -pos.z),
-      ];
+    if (halfToBottom) {
+      if (halfToLeft) return SIDE.TOP_RIGHT;
+      if (halfToRight) return SIDE.TOP_LEFT;
     }
 
-    if (dx === this.halfTileSizeInMeters && dz === this.halfTileSizeInMeters) {
-      return [
-        new Plane(new Vector3(1, 0, 0), -pos.x),
-        new Plane(new Vector3(0, 0, 1), -pos.z),
-      ];
-    }
-
-    return [];
-  }
+    return null;
+  };
 
   setTileMaterial(tile: TileState) {
     if (tile.material) return;
@@ -470,6 +518,7 @@ export default class Terrain {
   updateClipingPlanes = (tile: TileState) => {
     if (this.levelNumber === 0) return;
 
+    tile.clipSide = this.getClipSide(tile);
     tile.clippingPlanes = this.getClipingPlanes(tile);
     this.applyClipingPlanes(tile);
     // console.log('updateClipingPlanes', tile.side, tile.clippingPlanes);
