@@ -24,7 +24,7 @@ import type { Side } from './constants';
 import { getClosestCorner, setVerticesData, shiftArr } from './utils';
 import Tiles from './tiles';
 import type { HeightData } from './tiles';
-import seamTiles from './seam';
+import { seamSameLevel } from './seam';
 
 type TilePos = {
   x: number;
@@ -308,6 +308,8 @@ export default class Terrain {
     });
 
     await Promise.all(Object.values(this.rebuildPromises));
+
+    // if (!this.isRoot) this.seamToPrevLevel(id);
   }
 
   async rebuildTile(id, dx, dz, side) {
@@ -554,8 +556,18 @@ export default class Terrain {
     const [tileA, tileB] = tilesSides.map(side => this.tileBySide[side]);
 
     // this.log('seam', seam, '|', tileA.side, tileB.side);
-    seamTiles(tileA, tileB);
+    seamSameLevel(tileA, tileB);
 
     delete this.rebuildSeams[seam];
+  }
+
+  seamToPrevLevel(id) {
+    this.tiles.flat().forEach(tile => {
+      switch (tile.clipSide) {
+        case SIDE.BOTTOM:
+      }
+    });
+
+    if (id !== this.rebuildId) return;
   }
 }

@@ -2,8 +2,6 @@ import { SIDE } from './constants';
 
 const { TOP, LEFT, RIGHT, BOTTOM } = SIDE;
 
-const getMiddlePoint = (first, last) => first + (last - first) / 2;
-
 const getRelatedSide = (sideA, sideB) => {
   if (/top/.test(sideA) && /bottom/.test(sideB)) return [TOP, BOTTOM];
   if (/bottom/.test(sideA) && /top/.test(sideB)) return [BOTTOM, TOP];
@@ -11,124 +9,105 @@ const getRelatedSide = (sideA, sideB) => {
   if (/right/.test(sideA) && /left/.test(sideB)) return [RIGHT, LEFT];
 };
 
-function getIndexFactor(sideSizeA, sideSizeB, _sideA, _sideB) {
+function getIndexFactor(sideSize, _sideA, _sideB) {
   const [sideA, sideB] = getRelatedSide(_sideA, _sideB);
 
   if (sideA === BOTTOM && sideB === TOP) {
     return {
       a: i => i,
-      b: i => (sideSizeB - 1) * sideSizeB + i,
+      b: i => (sideSize - 1) * sideSize + i,
     };
   }
 
   if (sideA === TOP && sideB === BOTTOM) {
     return {
-      a: i => i + (sideSizeA - 1) * sideSizeA,
+      a: i => i + (sideSize - 1) * sideSize,
       b: i => i,
     };
   }
 
   if (sideA === RIGHT && sideB === LEFT) {
     return {
-      a: i => i * sideSizeA,
-      b: i => i * sideSizeB + sideSizeB - 1,
+      a: i => i * sideSize,
+      b: i => i * sideSize + sideSize - 1,
     };
   }
 
   if (sideA === LEFT && sideB === RIGHT) {
     return {
-      a: i => i * sideSizeA + sideSizeA - 1,
-      b: i => i * sideSizeB,
+      a: i => i * sideSize + sideSize - 1,
+      b: i => i * sideSize,
     };
   }
 }
 
 const viY = i => i * 3 + 1;
 
-function seamTiles(tileA, tileB, sideAScale) {
+function seamTiles(tileA, tileB) {
   const sideA = tileA.side;
   const sideB = tileB.side;
+
   const posA = tileA.object.geometry.attributes.position;
   const posB = tileB.object.geometry.attributes.position;
+  const normA = tileA.object.geometry.attributes.normal;
+  const normB = tileB.object.geometry.attributes.normal;
+
   const verticesA = posA.array;
   const verticesB = posB.array;
-  const sideSizeA = Math.sqrt(verticesA.length / 3);
-  const sideSizeB = Math.sqrt(verticesB.length / 3);
-  const getIndex = getIndexFactor(sideSizeA, sideSizeB, sideA, sideB);
-  const middlePointsCount = sideAScale - 1;
-  const seamHiPolyMiddlePoint = middlePointsCount
-    ? i => {
-        const dot1Y = verticesA[viY(getIndex.a(i))];
-        const dot2Y = verticesA[viY(getIndex.a(i + sideAScale))];
+  const normalsA = normA.array;
+  const normalsB = normB.array;
 
-        if (!dot1Y || !dot2Y) return;
-
-        for (let j = 1; j <= middlePointsCount; j++) {
-          const index = viY(getIndex.a(i + j));
-          verticesA[index] = getMiddlePoint(dot1Y, dot2Y);
-        }
-      }
-    : () => {};
+  const sideSize = Math.sqrt(verticesA.length / 3);
+  const getIndex = getIndexFactor(sideSize, sideA, sideB);
 
   // corner point
-  let indexA = getIndex.a(0);
-  let indexB = getIndex.b(0);
+  let indexA;
+  let indexB;
+  let indexAnorm;
+  let indexBnorm;
   let middle;
 
-  verticesB[viY(indexB)] = verticesA[viY(indexA)];
-  seamHiPolyMiddlePoint(0);
-
-  for (let i = 1; i < sideSizeB - 1; i++) {
-    indexA = getIndex.a(i * sideAScale);
-    indexB = getIndex.b(i);
+  const setAPoint = () => (verticesB[viY(indexB)] = verticesA[viY(indexA)]);
+  const setMiddlePoint = () => {
     middle = Math.floor(
       (tileA.heightData[indexA] + tileB.heightData[indexB]) / 2
     );
 
     verticesB[viY(indexB)] = middle;
     verticesA[viY(indexA)] = middle;
-  }
+  };
 
-  // align middle points (after main points are merged)
-  for (let i = 1; i < sideSizeB - 1; i++) {
-    seamHiPolyMiddlePoint(i * sideAScale);
+  const seamIndex = (i, setPosFn) => {
+    indexA = getIndex.a(i);
+    indexB = getIndex.b(i);
+
+    setPosFn();
+
+    indexAnorm = indexA * 3;
+    indexBnorm = indexB * 3;
+
+    normalsB[indexBnorm] = normalsA[indexAnorm];
+    normalsB[indexBnorm + 1] = normalsA[indexAnorm + 1];
+    normalsB[indexBnorm + 2] = normalsA[indexAnorm + 2];
+  };
+
+  // corner point
+  seamIndex(0, setAPoint);
+
+  for (let i = 1; i < sideSize - 1; i++) {
+    seamIndex(i, setMiddlePoint);
   }
 
   // corner point
-  indexA = getIndex.a((sideSizeB - 1) * sideAScale);
-  indexB = getIndex.b(sideSizeB - 1);
-  verticesB[viY(indexB)] = verticesA[viY(indexA)];
+  seamIndex(sideSize - 1, setAPoint);
 
   posB.needsUpdate = true;
   posA.needsUpdate = true;
-}
-
-function copyNormals(tileA, tileB, sideAScale) {
-  const sideA = tileA.side;
-  const sideB = tileB.side;
-  const normA = tileA.object.geometry.attributes.normal;
-  const normB = tileB.object.geometry.attributes.normal;
-  const normalsA = normA.array;
-  const normalsB = normB.array;
-  const sideSizeA = Math.sqrt(normalsA.length / 3);
-  const sideSizeB = Math.sqrt(normalsB.length / 3);
-
-  const getIndex = getIndexFactor(sideSizeA, sideSizeB, sideA, sideB);
-
-  for (let i = 0; i < sideSizeB; i++) {
-    const indexA = getIndex.a(i * sideAScale) * 3;
-    const indexB = getIndex.b(i) * 3;
-
-    normalsB[indexB] = normalsA[indexA];
-    normalsB[indexB + 1] = normalsA[indexA + 1];
-    normalsB[indexB + 2] = normalsA[indexA + 2];
-  }
-
   normB.needsUpdate = true;
 }
 
-export default function seam(tileA, tileB, sideAScale = 1) {
-  // const { size, object.geometry } = centralTile;
+export function seamSameLevel(tileA, tileB) {
+  // const { size, object } = centralTile;
   // const { position } = object.geometry.attributes;
   // const cornerDots = {
   //   [TOP_LEFT]: position[viY(0)],
@@ -137,6 +116,7 @@ export default function seam(tileA, tileB, sideAScale = 1) {
   //   [BOTTOM_RIGHT]: position[viY(size * size - 1)],
   // };
 
-  seamTiles(tileA, tileB, sideAScale);
-  copyNormals(tileA, tileB, sideAScale);
+  seamTiles(tileA, tileB);
 }
+
+export function seamDifferentLevel(tileA, tileB) {}
