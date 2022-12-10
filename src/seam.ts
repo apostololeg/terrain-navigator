@@ -119,4 +119,13 @@ export function seamSameLevel(tileA, tileB) {
   seamTiles(tileA, tileB);
 }
 
-export function seamDifferentLevel(tileA, tileB) {}
+export function seamToPrevLevel(tile, parent) {
+  switch (tile.clipSide) {
+    case BOTTOM:
+      const [parentTile1, parentTile2] = parent.tiles[0];
+
+      for (let i = 0; i < parentTile1.size * 2; i += 4) {
+        tile.heightData[i] = parentTile1.heightData[i];
+      }
+  }
+}

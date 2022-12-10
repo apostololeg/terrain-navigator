@@ -32,7 +32,7 @@ export function imageToHeightData(imageData: ImageData): number[] {
     const B = data[i + 2];
     const height = (R * 256 * 256 + G * 256 + B) * yAmplitude - yOffset;
 
-    heightData[i / 4] = Math.floor(height);
+    heightData[i / 4] = +height.toFixed(2);
   }
 
   return heightData;

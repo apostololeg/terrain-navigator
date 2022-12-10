@@ -24,7 +24,7 @@ import type { Side } from './constants';
 import { getClosestCorner, setVerticesData, shiftArr } from './utils';
 import Tiles from './tiles';
 import type { HeightData } from './tiles';
-import { seamSameLevel } from './seam';
+import { seamSameLevel, seamToPrevLevel } from './seam';
 
 type TilePos = {
   x: number;
@@ -63,6 +63,7 @@ export type TerrainParams = {
   container: Object3D;
   material: Material;
   coords?: Coords;
+  tileImageSize?: 256 | 512;
   zoom: number;
   minZoom?: number;
   maxZoom?: number;
@@ -81,9 +82,10 @@ export type TerrainParams = {
 };
 
 export default class Terrain {
-  root?: Terrain;
-  isRoot: boolean;
   params?: TerrainParams;
+  root?: Terrain;
+  parent?: Terrain;
+  isRoot: boolean;
 
   container = new Group();
   merc = new SphericalMercator({
@@ -102,6 +104,8 @@ export default class Terrain {
   parentLevelCenterDot: number[];
   material: Material;
   tileNumber = { x: 0, z: 0 };
+  tileSegmentsCount: number;
+  imageSize: number;
   tileImageSize: number;
   tileSizeInMeters: number;
   halfTileSizeInMeters: number;
@@ -120,12 +124,12 @@ export default class Terrain {
 
   log: (...args: any[]) => void;
 
-  constructor(params: TerrainParams, root?: Terrain) {
+  constructor(params: TerrainParams, root?: Terrain, parent?: Terrain) {
     const {
       coords,
       position,
+      tileImageSize,
       zoom,
-      zoomScale,
       scale,
       levelNumber,
       mapBoxToken,
@@ -134,6 +138,7 @@ export default class Terrain {
 
     this.isRoot = !root;
     this.root = root || this;
+    this.parent = parent;
     this.params = params;
     if (scale) this.scale = scale;
 
@@ -148,35 +153,31 @@ export default class Terrain {
       }
 
       this.tilesStore = new Tiles({ mapBoxToken });
+      this.tileImageSize = tileImageSize || TILE_IMAGE_SIZE;
     }
 
     this.levelNumber = levelNumber ?? 0;
     this.zoomScale = Math.pow(2, this.levelNumber);
+    this.imageSize = this.root.tileImageSize * this.zoomScale;
+    this.tileSegmentsCount =
+      (this.root.tileImageSize / (this.zoomScale / 2)) * this.scale + 1;
 
     this.log = console.log.bind(this, `${this.levelNumber} ::`);
 
     if (typeof minZoom === 'number') {
       const newZoom = zoom - 1;
 
-      // if (zoomScale) this.zoomScale = zoomScale;
-
-      this.log('zoomScale', this.zoomScale);
-
-      this.tileImageSize = TILE_IMAGE_SIZE; // * this.zoomScale;
       this.tileSizeInMeters = TILE_IMAGE_SIZE_IN_METERS * this.zoomScale;
       this.halfTileSizeInMeters = this.tileSizeInMeters / 2;
 
       if (newZoom >= minZoom) {
-        this.subLevel = new Terrain(
-          {
-            ...params,
-            zoom: newZoom,
-            // zoomScale: Math.pow(2, this.levelNumber),
-            // zoomScale: this.zoomScale + (this.isRoot ? 1 : 2),
-            levelNumber: this.levelNumber + 1,
-          },
-          this.root
-        );
+        const newLevelParams = {
+          ...params,
+          zoom: newZoom,
+          levelNumber: this.levelNumber + 1,
+        };
+
+        this.subLevel = new Terrain(newLevelParams, this.root, this);
       }
     }
   }
@@ -195,7 +196,7 @@ export default class Terrain {
     // offset fix objects shaking when camera moves
     // https://discourse.threejs.org/t/moving-the-camera-model-will-shake-if-the-coordinates-are-large/7214
     this.offset = { x, z };
-    this.params.setPosition({ x: 0, z: 0 });
+    this.root.params.setPosition({ x: 0, z: 0 });
   }
 
   updateVerticalPosition() {
@@ -208,9 +209,8 @@ export default class Terrain {
 
   shift() {
     const { x, z } = this.root.position;
-    const imageSize = this.tileImageSize * this.zoomScale;
-    const nx = Math.floor(x / imageSize);
-    const nz = Math.floor(z / imageSize);
+    const nx = Math.floor(x / this.imageSize);
+    const nz = Math.floor(z / this.imageSize);
     let dx = 0;
     let dz = 0;
 
@@ -321,14 +321,13 @@ export default class Terrain {
     this.log('rebuildTile', tile.side);
 
     const pos = this.getTilePos(dx, dz);
-    const size = (this.root.tileImageSize / this.zoomScale) * this.scale + 1;
 
     tile.pos = pos;
 
     this.setTileMaterial(tile);
     this.updateClipingPlanes(tile);
 
-    tile.heightData = await this.getTile(pos.nx, pos.nz, size);
+    tile.heightData = await this.getTile(pos.nx, pos.nz);
 
     if (id !== this.rebuildId) return;
 
@@ -371,9 +370,11 @@ export default class Terrain {
     }
   };
 
-  getTile(nx, nz, size) {
+  getTile(nx, nz) {
     const { zoom } = this.params;
-    return (this.root || this).tilesStore.getTile(nx, nz, zoom, size);
+    const size = this.tileSegmentsCount;
+
+    return this.root.tilesStore.getTile(nx, nz, zoom, size);
   }
 
   getTilePos(dx, dz): TilePos {
@@ -562,11 +563,7 @@ export default class Terrain {
   }
 
   seamToPrevLevel(id) {
-    this.tiles.flat().forEach(tile => {
-      switch (tile.clipSide) {
-        case SIDE.BOTTOM:
-      }
-    });
+    this.tiles.flat().forEach(tile => seamToPrevLevel(tile, this.parent));
 
     if (id !== this.rebuildId) return;
   }
