@@ -309,7 +309,7 @@ export default class Terrain {
 
     await Promise.all(Object.values(this.rebuildPromises));
 
-    // if (!this.isRoot) this.seamToPrevLevel(id);
+    if (!this.isRoot) requestAnimationFrame(() => this.seamToPrevLevel(id));
   }
 
   async rebuildTile(id, dx, dz, side) {
@@ -563,8 +563,10 @@ export default class Terrain {
   }
 
   seamToPrevLevel(id) {
-    this.tiles.flat().forEach(tile => seamToPrevLevel(tile, this.parent));
-
-    if (id !== this.rebuildId) return;
+    this.tiles.flat().forEach(tile => {
+      seamToPrevLevel(tile, this);
+      // @ts-ignore
+      requestAnimationFrame(() => tile.object.geometry.computeVertexNormals());
+    });
   }
 }
