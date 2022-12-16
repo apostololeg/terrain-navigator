@@ -1,6 +1,6 @@
 import { SIDE } from './constants';
 
-const { TOP, LEFT, RIGHT, BOTTOM } = SIDE;
+const { TOP, LEFT, RIGHT, BOTTOM, BOTTOM_RIGHT, BOTTOM_LEFT } = SIDE;
 
 const getRelatedSide = (sideA, sideB) => {
   if (/top/.test(sideA) && /bottom/.test(sideB)) return [TOP, BOTTOM];
@@ -129,6 +129,8 @@ export function seamToPrevLevel(tile, terrain) {
   // console.log('tileSegmentsCount', tileSegmentsCount);
   // console.log('segmentsDiff', segmentsDiff);
 
+  console.log('seamToPrevLevel', tile.clipSide);
+
   switch (tile.clipSide) {
     case BOTTOM:
       seamtoPrevBottom({
@@ -152,16 +154,29 @@ export function seamToPrevLevel(tile, terrain) {
 
       break;
 
-    // case RIGHT:
-    //   seamtoPrevRight({
-    //     parent,
-    //     tile,
-    //     segmentsDiff,
-    //     halfTileSegmentsCount,
-    //     tileSegmentsCount,
-    //   });
+    case RIGHT:
+      seamtoPrevRight({
+        parent,
+        tile,
+        segmentsDiff,
+        halfTileSegmentsCount,
+        tileSegmentsCount,
+      });
 
-    //   break;
+      break;
+
+    case LEFT:
+      seamtoPrevLeft({
+        parent,
+        tile,
+        segmentsDiff,
+        halfTileSegmentsCount,
+        tileSegmentsCount,
+      });
+
+      break;
+
+    case BOTTOM_RIGHT:
   }
 }
 
@@ -185,53 +200,54 @@ function seamtoPrevBottom({
   let pt1NormArr = pt1Norm.array;
   let pt2NormArr = pt2Norm.array;
 
-  const alignMidlePoints = (arr, index) => {
-    let currY = arr[viY(index)];
-    const nextY = arr[viY(index + segmentsDiff)];
-    const segmentDeltaY = (nextY - currY) / segmentsDiff;
-
-    // console.log(index, currY, nextY, segmentDeltaY);
+  const alignMidlePoints = (pos, index, segmentDeltaY) => {
+    let pY = pos[viY(index)];
 
     for (let j = 1; j < segmentsDiff; j++) {
-      currY += segmentDeltaY;
-      // console.log('\t', index + j, currY);
-      arr[viY(index + j)] = currY;
+      const iY = viY(index + j);
+
+      pY += segmentDeltaY;
+      pos[iY] = pY;
     }
   };
 
   let i = 0;
   let currLevelIndex = halfTileSegmentsCount * tileSegmentsCount;
   let ptIndex = 0;
+  let ptIndexPrev, pt1Y, pt2Y, pt1PrevY, pt2PrevY, pt1DeltaY, pt2DeltaY;
 
-  for (; i < halfTileSegmentsCount; ) {
-    // console.log('currLevelIndex', currLevelIndex, posArr[viY(currLevelIndex)]);
-    // console.log(
-    //   'currLevelIndex + halfTileSegmentsCount',
-    //   currLevelIndex + halfTileSegmentsCount,
-    //   posArr[viY(currLevelIndex + halfTileSegmentsCount)]
-    // );
+  for (; i <= halfTileSegmentsCount; ) {
+    pt1Y = posArr[viY(currLevelIndex)];
+    pt2Y = posArr[viY(currLevelIndex + halfTileSegmentsCount)];
 
-    posArr[viY(currLevelIndex)] = pt1PosArr[viY(ptIndex)];
-    posArr[viY(currLevelIndex + halfTileSegmentsCount)] =
-      pt2PosArr[viY(ptIndex)];
+    pt1PosArr[viY(ptIndex)] = pt1Y;
+    pt2PosArr[viY(ptIndex)] = pt2Y;
 
-    normArr[viY(currLevelIndex)] = pt1NormArr[viY(ptIndex)];
-    normArr[viY(currLevelIndex + halfTileSegmentsCount)] =
-      pt2NormArr[viY(ptIndex)];
+    pt1NormArr[viY(ptIndex)] = normArr[viY(currLevelIndex)];
+    pt2NormArr[viY(ptIndex)] =
+      normArr[viY(currLevelIndex + halfTileSegmentsCount)];
 
-    alignMidlePoints(pt1PosArr, ptIndex);
-    alignMidlePoints(pt2PosArr, ptIndex);
+    if (Number.isFinite(ptIndexPrev)) {
+      pt1DeltaY = (pt1Y - pt1PrevY) / segmentsDiff;
+      pt2DeltaY = (pt2Y - pt2PrevY) / segmentsDiff;
+
+      alignMidlePoints(pt1PosArr, ptIndexPrev, pt1DeltaY);
+      alignMidlePoints(pt2PosArr, ptIndexPrev, pt2DeltaY);
+    }
+
+    ptIndexPrev = ptIndex;
+    pt1PrevY = pt1Y;
+    pt2PrevY = pt2Y;
 
     currLevelIndex++;
     i++;
-    ptIndex = i * 4;
+    ptIndex = i * segmentsDiff;
   }
 
-  posArr[viY(currLevelIndex + halfTileSegmentsCount)] = pt2PosArr[viY(ptIndex)];
-
-  position.needsUpdate = true;
   pt1Pos.needsUpdate = true;
   pt2Pos.needsUpdate = true;
+  pt1Norm.needsUpdate = true;
+  pt2Norm.needsUpdate = true;
 }
 
 function seamtoPrevTop({
@@ -254,130 +270,198 @@ function seamtoPrevTop({
   let pt1NormArr = pt1Norm.array;
   let pt2NormArr = pt2Norm.array;
 
-  const alignMidlePoints = (pos, index) => {
-    let currY = pos[viY(index)];
-    const nextY = pos[viY(index + segmentsDiff)];
-    const segmentDeltaY = (nextY - currY) / segmentsDiff;
-
-    console.log(index, currY, nextY, segmentDeltaY);
+  const alignMidlePoints = (pos, index, segmentDeltaY) => {
+    let pY = pos[viY(index)];
 
     for (let j = 1; j < segmentsDiff; j++) {
-      currY += segmentDeltaY;
-      console.log('\t', index + j, currY);
-      pos[viY(index + j)] = currY;
+      const iY = viY(index + j);
+
+      pY += segmentDeltaY;
+      pos[iY] = pY;
     }
   };
 
   let i = 0;
   let currLevelIndex = halfTileSegmentsCount * tileSegmentsCount;
   let ptIndex = parent.tileSegmentsCount * (parent.tileSegmentsCount - 1);
+  let ptIndexPrev, pt1Y, pt2Y, pt1PrevY, pt2PrevY, pt1DeltaY, pt2DeltaY;
 
-  for (; i < halfTileSegmentsCount; ) {
-    console.log('currLevelIndex', currLevelIndex, posArr[viY(currLevelIndex)]);
-    console.log(
-      'currLevelIndex + halfTileSegmentsCount',
-      currLevelIndex + halfTileSegmentsCount,
-      posArr[viY(currLevelIndex + halfTileSegmentsCount)]
-    );
-    console.log('ptIndex', ptIndex);
-    console.log('pt1PosArr[viY(ptIndex)]', pt1PosArr[viY(ptIndex)]);
-    console.log('pt2PosArr[viY(ptIndex)]', pt2PosArr[viY(ptIndex)]);
+  for (; i <= halfTileSegmentsCount; ) {
+    pt1Y = posArr[viY(currLevelIndex)];
+    pt2Y = posArr[viY(currLevelIndex + halfTileSegmentsCount)];
 
-    posArr[viY(currLevelIndex)] = pt1PosArr[viY(ptIndex)];
-    posArr[viY(currLevelIndex + halfTileSegmentsCount)] =
-      pt2PosArr[viY(ptIndex)];
+    pt1PosArr[viY(ptIndex)] = pt1Y;
+    pt2PosArr[viY(ptIndex)] = pt2Y;
 
-    normArr[viY(currLevelIndex)] = pt1NormArr[viY(ptIndex)];
-    normArr[viY(currLevelIndex + halfTileSegmentsCount)] =
-      pt2NormArr[viY(ptIndex)];
+    pt1NormArr[viY(ptIndex)] = normArr[viY(currLevelIndex)];
+    pt2NormArr[viY(ptIndex)] =
+      normArr[viY(currLevelIndex + halfTileSegmentsCount)];
 
-    alignMidlePoints(pt1PosArr, ptIndex);
-    alignMidlePoints(pt2PosArr, ptIndex);
+    if (Number.isFinite(ptIndexPrev)) {
+      pt1DeltaY = (pt1Y - pt1PrevY) / segmentsDiff;
+      pt2DeltaY = (pt2Y - pt2PrevY) / segmentsDiff;
+
+      alignMidlePoints(pt1PosArr, ptIndexPrev, pt1DeltaY);
+      alignMidlePoints(pt2PosArr, ptIndexPrev, pt2DeltaY);
+    }
+
+    ptIndexPrev = ptIndex;
+    pt1PrevY = pt1Y;
+    pt2PrevY = pt2Y;
 
     currLevelIndex++;
     i++;
-    ptIndex += 4;
+    ptIndex += segmentsDiff;
   }
-
-  posArr[viY(currLevelIndex + halfTileSegmentsCount)] = pt2PosArr[viY(ptIndex)];
-
-  position.needsUpdate = true;
-  normal.needsUpdate = true;
 
   pt1Pos.needsUpdate = true;
   pt2Pos.needsUpdate = true;
+  pt1Norm.needsUpdate = true;
+  pt2Norm.needsUpdate = true;
 }
 
-// function seamtoPrevRight({
-//   parent,
-//   tile,
-//   segmentsDiff,
-//   halfTileSegmentsCount,
-//   tileSegmentsCount,
-// }) {
-//   const { position, normal } = tile.object.geometry.attributes;
-//   const posArr = position.array;
-//   const normArr = normal.array;
-//   let [pt1, pt2] = [parent.tiles[0][0], parent.tiles[0][1]];
-//   let pt1Pos = pt1.object.geometry.attributes.position;
-//   let pt2Pos = pt2.object.geometry.attributes.position;
-//   let pt1Norm = pt1.object.geometry.attributes.normal;
-//   let pt2Norm = pt2.object.geometry.attributes.normal;
-//   let pt1PosArr = pt1Pos.array;
-//   let pt2PosArr = pt2Pos.array;
-//   let pt1NormArr = pt1Norm.array;
-//   let pt2NormArr = pt2Norm.array;
+function seamtoPrevRight({
+  parent,
+  tile,
+  segmentsDiff,
+  halfTileSegmentsCount,
+  tileSegmentsCount,
+}) {
+  const { position, normal } = tile.object.geometry.attributes;
+  const posArr = position.array;
+  const normArr = normal.array;
+  let [pt1, pt2] = [parent.tiles[0][0], parent.tiles[1][0]];
+  let pt1Pos = pt1.object.geometry.attributes.position;
+  let pt2Pos = pt2.object.geometry.attributes.position;
+  let pt1Norm = pt1.object.geometry.attributes.normal;
+  let pt2Norm = pt2.object.geometry.attributes.normal;
+  let pt1PosArr = pt1Pos.array;
+  let pt2PosArr = pt2Pos.array;
+  let pt1NormArr = pt1Norm.array;
+  let pt2NormArr = pt2Norm.array;
 
-//   const alignMidlePoints = (pos, index) => {
-//     let currY = pos[viY(index)];
-//     const nextY = pos[viY(index + segmentsDiff)];
-//     const segmentDeltaY = (nextY - currY) / segmentsDiff;
+  const alignMidlePoints = (pos, index, segmentDeltaY) => {
+    let pY = pos[viY(index)];
 
-//     console.log(index, currY, nextY, segmentDeltaY);
+    for (
+      let j = parent.tileSegmentsCount;
+      j < parent.tileSegmentsCount * segmentsDiff;
+      j += parent.tileSegmentsCount
+    ) {
+      pY += segmentDeltaY;
+      pos[viY(index + j)] = pY;
+    }
+  };
 
-//     for (let j = 1; j < segmentsDiff; j++) {
-//       currY += segmentDeltaY;
-//       console.log('\t', index + j, currY);
-//       pos[viY(index + j)] = currY;
-//     }
-//   };
+  const halfTileDeltaIndex = tileSegmentsCount * halfTileSegmentsCount;
+  let i = 0;
+  let currLevelIndex = halfTileSegmentsCount;
+  let ptIndex = 0;
+  let ptIndexPrev, pt1Y, pt2Y, pt1PrevY, pt2PrevY, pt1DeltaY, pt2DeltaY;
 
-//   let i = 0;
-//   let currLevelIndex = halfTileSegmentsCount * tileSegmentsCount;
-//   let ptIndex = parent.tileSegmentsCount * (parent.tileSegmentsCount - 1);
+  for (; i <= halfTileSegmentsCount; ) {
+    pt1Y = posArr[viY(currLevelIndex)];
+    pt2Y = posArr[viY(currLevelIndex + halfTileDeltaIndex)];
 
-//   for (; i < halfTileSegmentsCount; ) {
-//     console.log('currLevelIndex', currLevelIndex, posArr[viY(currLevelIndex)]);
-//     console.log(
-//       'currLevelIndex + halfTileSegmentsCount',
-//       currLevelIndex + halfTileSegmentsCount,
-//       posArr[viY(currLevelIndex + halfTileSegmentsCount)]
-//     );
-//     console.log('ptIndex', ptIndex);
-//     console.log('pt1PosArr[viY(ptIndex)]', pt1PosArr[viY(ptIndex)]);
-//     console.log('pt2PosArr[viY(ptIndex)]', pt2PosArr[viY(ptIndex)]);
+    pt1PosArr[viY(ptIndex)] = pt1Y;
+    pt2PosArr[viY(ptIndex)] = pt2Y;
 
-//     posArr[viY(currLevelIndex)] = pt1PosArr[viY(ptIndex)];
-//     posArr[viY(currLevelIndex + halfTileSegmentsCount)] =
-//       pt2PosArr[viY(ptIndex)];
+    pt1NormArr[viY(ptIndex)] = normArr[viY(currLevelIndex)];
+    pt2NormArr[viY(ptIndex)] =
+      normArr[viY(currLevelIndex + halfTileDeltaIndex)];
 
-//     normArr[viY(currLevelIndex)] = pt1NormArr[viY(ptIndex)];
-//     normArr[viY(currLevelIndex + halfTileSegmentsCount)] =
-//       pt2NormArr[viY(ptIndex)];
+    if (Number.isFinite(ptIndexPrev)) {
+      pt1DeltaY = (pt1Y - pt1PrevY) / segmentsDiff;
+      pt2DeltaY = (pt2Y - pt2PrevY) / segmentsDiff;
 
-//     alignMidlePoints(pt1PosArr, ptIndex);
-//     alignMidlePoints(pt2PosArr, ptIndex);
+      alignMidlePoints(pt1PosArr, ptIndexPrev, pt1DeltaY);
+      alignMidlePoints(pt2PosArr, ptIndexPrev, pt2DeltaY);
+    }
 
-//     currLevelIndex++;
-//     i++;
-//     ptIndex += 4;
-//   }
+    ptIndexPrev = ptIndex;
+    pt1PrevY = pt1Y;
+    pt2PrevY = pt2Y;
 
-//   posArr[viY(currLevelIndex + halfTileSegmentsCount)] = pt2PosArr[viY(ptIndex)];
+    currLevelIndex += tileSegmentsCount;
+    i++;
+    ptIndex += parent.tileSegmentsCount * segmentsDiff;
+  }
 
-//   position.needsUpdate = true;
-//   normal.needsUpdate = true;
+  pt1Pos.needsUpdate = true;
+  pt2Pos.needsUpdate = true;
+  pt1Norm.needsUpdate = true;
+  pt2Norm.needsUpdate = true;
+}
 
-//   pt1Pos.needsUpdate = true;
-//   pt2Pos.needsUpdate = true;
-// }
+function seamtoPrevLeft({
+  parent,
+  tile,
+  segmentsDiff,
+  halfTileSegmentsCount,
+  tileSegmentsCount,
+}) {
+  const { position, normal } = tile.object.geometry.attributes;
+  const posArr = position.array;
+  const normArr = normal.array;
+  let [pt1, pt2] = [parent.tiles[0][1], parent.tiles[1][1]];
+  let pt1Pos = pt1.object.geometry.attributes.position;
+  let pt2Pos = pt2.object.geometry.attributes.position;
+  let pt1Norm = pt1.object.geometry.attributes.normal;
+  let pt2Norm = pt2.object.geometry.attributes.normal;
+  let pt1PosArr = pt1Pos.array;
+  let pt2PosArr = pt2Pos.array;
+  let pt1NormArr = pt1Norm.array;
+  let pt2NormArr = pt2Norm.array;
+
+  const alignMidlePoints = (pos, index, segmentDeltaY) => {
+    let pY = pos[viY(index)];
+
+    for (
+      let j = parent.tileSegmentsCount;
+      j < parent.tileSegmentsCount * segmentsDiff;
+      j += parent.tileSegmentsCount
+    ) {
+      pY += segmentDeltaY;
+      pos[viY(index + j)] = pY;
+    }
+  };
+
+  const halfTileDeltaIndex = tileSegmentsCount * halfTileSegmentsCount;
+  let i = 0;
+  let currLevelIndex = halfTileSegmentsCount;
+  let ptIndex = parent.tileSegmentsCount - 1;
+  let ptIndexPrev, pt1Y, pt2Y, pt1PrevY, pt2PrevY, pt1DeltaY, pt2DeltaY;
+
+  for (; i <= halfTileSegmentsCount; ) {
+    pt1Y = posArr[viY(currLevelIndex)];
+    pt2Y = posArr[viY(currLevelIndex + halfTileDeltaIndex)];
+
+    pt1PosArr[viY(ptIndex)] = pt1Y;
+    pt2PosArr[viY(ptIndex)] = pt2Y;
+
+    pt1NormArr[viY(ptIndex)] = normArr[viY(currLevelIndex)];
+    pt2NormArr[viY(ptIndex)] =
+      normArr[viY(currLevelIndex + halfTileDeltaIndex)];
+
+    if (ptIndexPrev) {
+      pt1DeltaY = (pt1Y - pt1PrevY) / segmentsDiff;
+      pt2DeltaY = (pt2Y - pt2PrevY) / segmentsDiff;
+
+      alignMidlePoints(pt1PosArr, ptIndexPrev, pt1DeltaY);
+      alignMidlePoints(pt2PosArr, ptIndexPrev, pt2DeltaY);
+    }
+
+    ptIndexPrev = ptIndex;
+    pt1PrevY = pt1Y;
+    pt2PrevY = pt2Y;
+
+    currLevelIndex += tileSegmentsCount;
+    i++;
+    ptIndex += parent.tileSegmentsCount * segmentsDiff;
+  }
+
+  pt1Pos.needsUpdate = true;
+  pt2Pos.needsUpdate = true;
+  pt1Norm.needsUpdate = true;
+  pt2Norm.needsUpdate = true;
+}

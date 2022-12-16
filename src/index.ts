@@ -121,6 +121,7 @@ export default class Terrain {
   rebuildId;
   rebuildPromises: { [side: Side]: Promise<void> } = {}; // [side]: Promise<void>
   rebuildSeams: { [side: Side]: true } = {}; // [seam position]: true
+  seamsRebuilded = 0;
 
   log: (...args: any[]) => void;
 
@@ -260,8 +261,8 @@ export default class Terrain {
     await this.rebuild();
 
     if (this.subLevel) {
-      await this.rebuildPromises['top-left'];
-      const leftTopTile = this.tileBySide['top-left'];
+      await this.rebuildPromises[SIDE.TOP_LEFT];
+      const leftTopTile = this.tileBySide[SIDE.TOP_LEFT];
       const centralTilePos = [
         leftTopTile.pos.x + this.halfTileSizeInMeters,
         leftTopTile.pos.z + this.halfTileSizeInMeters,
@@ -272,7 +273,7 @@ export default class Terrain {
   };
 
   async rebuild(): Promise<void[]> {
-    const id = Math.random();
+    const id = Date.now();
     const pos = this.params.getPosition();
     const currTilePos = this.getTilePos(0, 0);
     const newSide = getClosestCorner(
@@ -280,24 +281,24 @@ export default class Terrain {
       currTilePos,
       this.halfTileSizeInMeters
     );
+    const tiles = this.tiles.flat();
 
     this.log('newSide', newSide);
 
+    this.rebuildId = id;
+
     if (this.currTileSide === newSide) {
-      this.tiles.flat().forEach(tile => {
-        this.updateClipingPlanes(tile);
-        // this.applyClipingPlanes(tile);
-      });
+      tiles.forEach(this.updateClipingPlanes);
+      this.seamToPrevLevel(id);
       return;
     }
 
-    this.rebuildId = id;
     this.currTileSide = newSide;
     this.tilesDeltas = TILE_DELTA_BY_SIDE[newSide];
 
     const sides = [...TILE_SIDES];
-    this.tiles.flat().forEach(tile => {
-      tile.side = sides.shift();
+    tiles.forEach(tile => {
+      tile.side = sides.shift(); // assign side
       this.tileBySide[tile.side] = tile;
     });
     this.currTile = this.tileBySide[newSide];
@@ -307,9 +308,8 @@ export default class Terrain {
       this.rebuildPromises[side] = this.rebuildTile(id, dz, dx, side);
     });
 
+    this.seamsRebuilded = 0;
     await Promise.all(Object.values(this.rebuildPromises));
-
-    if (!this.isRoot) requestAnimationFrame(() => this.seamToPrevLevel(id));
   }
 
   async rebuildTile(id, dx, dz, side) {
@@ -343,7 +343,7 @@ export default class Terrain {
     onTileRebuilded(this.levelNumber, tile, oldObject);
     // }
 
-    TILE_SEAMS[side].forEach(seam => this.seam(id, seam));
+    TILE_SEAMS[side].map(seam => this.seam(id, seam));
   }
 
   buildTileGeometry(pos: TilePos, heightData) {
@@ -560,13 +560,29 @@ export default class Terrain {
     seamSameLevel(tileA, tileB);
 
     delete this.rebuildSeams[seam];
+
+    if (!this.isRoot && ++this.seamsRebuilded === 4) {
+      this.seamToPrevLevel(id);
+    }
   }
 
   seamToPrevLevel(id) {
-    this.tiles.flat().forEach(tile => {
-      seamToPrevLevel(tile, this);
-      // @ts-ignore
-      requestAnimationFrame(() => tile.object.geometry.computeVertexNormals());
-    });
+    let i = 0;
+    const tiles = this.tiles.flat();
+    const flush = () => {
+      if (id !== this.rebuildId) return;
+      seamToPrevLevel(tiles[i], this);
+      tiles[++i] ? flush() : this.computeVertexNormals();
+      // requestAnimationFrame(tiles[++i] ? flush : this.computeVertexNormals);
+    };
+
+    flush();
   }
+
+  computeVertexNormals = () => {
+    this.tiles
+      .flat()
+      // @ts-ignore
+      .forEach(tile => tile.object.geometry.computeVertexNormals());
+  };
 }
