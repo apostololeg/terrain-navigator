@@ -82,9 +82,9 @@ export type TerrainParams = {
 };
 
 export default class Terrain {
-  params?: TerrainParams;
-  root?: Terrain;
+  _?: Terrain; // root
   parent?: Terrain;
+  params?: TerrainParams;
   isRoot: boolean;
 
   container = new Group();
@@ -138,7 +138,7 @@ export default class Terrain {
     const minZoom = params.minZoom || zoom;
 
     this.isRoot = !root;
-    this.root = root || this;
+    this._ = root || this;
     this.parent = parent;
     this.params = params;
     if (scale) this.scale = scale;
@@ -159,9 +159,9 @@ export default class Terrain {
 
     this.levelNumber = levelNumber ?? 0;
     this.zoomScale = Math.pow(2, this.levelNumber);
-    this.imageSize = this.root.tileImageSize * this.zoomScale;
+    this.imageSize = this._.tileImageSize * this.zoomScale;
     this.tileSegmentsCount =
-      (this.root.tileImageSize / (this.zoomScale / 2)) * this.scale + 1;
+      (this._.tileImageSize / (this.zoomScale / 2)) * this.scale + 1;
 
     this.log = console.log.bind(this, `${this.levelNumber} ::`);
 
@@ -178,7 +178,7 @@ export default class Terrain {
           levelNumber: this.levelNumber + 1,
         };
 
-        this.subLevel = new Terrain(newLevelParams, this.root, this);
+        this.subLevel = new Terrain(newLevelParams, this._, this);
       }
     }
   }
@@ -191,13 +191,13 @@ export default class Terrain {
   }
 
   updateHorizontalPosition() {
-    const { lat, lon } = this.root.coords;
+    const { lat, lon } = this._.coords;
     const [x, z] = this.merc.px([lon, lat], this.params.zoom);
 
     // offset fix objects shaking when camera moves
     // https://discourse.threejs.org/t/moving-the-camera-model-will-shake-if-the-coordinates-are-large/7214
     this.offset = { x, z };
-    this.root.params.setPosition({ x: 0, z: 0 });
+    this._.params.setPosition({ x: 0, z: 0 });
   }
 
   updateVerticalPosition() {
@@ -209,7 +209,7 @@ export default class Terrain {
   }
 
   shift() {
-    const { x, z } = this.root.position;
+    const { x, z } = this._.position;
     const nx = Math.floor(x / this.imageSize);
     const nz = Math.floor(z / this.imageSize);
     let dx = 0;
@@ -245,7 +245,7 @@ export default class Terrain {
     const { x, z } = this.params.getPosition();
 
     if (this.isRoot) {
-      const { offset } = this.root;
+      const { offset } = this._;
 
       this.position = {
         x: x + offset.x,
@@ -285,11 +285,11 @@ export default class Terrain {
 
     this.log('newSide', newSide);
 
-    this.rebuildId = id;
+    if (this.isRoot) this.rebuildId = Date.now();
 
     if (this.currTileSide === newSide) {
       tiles.forEach(this.updateClipingPlanes);
-      this.seamToPrevLevel(id);
+      if (!this.isRoot) this.seamToPrevLevel();
       return;
     }
 
@@ -305,14 +305,15 @@ export default class Terrain {
 
     // @ts-ignore
     Object.entries(this.tilesDeltas).forEach(([side, [dx, dz]]) => {
-      this.rebuildPromises[side] = this.rebuildTile(id, dz, dx, side);
+      this.rebuildPromises[side] = this.rebuildTile(dz, dx, side);
     });
 
     this.seamsRebuilded = 0;
     await Promise.all(Object.values(this.rebuildPromises));
   }
 
-  async rebuildTile(id, dx, dz, side) {
+  async rebuildTile(dx, dz, side) {
+    const id = this._.rebuildId;
     const { onTileRebuilded } = this.params;
     const tile = this.tileBySide[side];
     const oldObject = tile.object;
@@ -329,7 +330,7 @@ export default class Terrain {
 
     tile.heightData = await this.getTile(pos.nx, pos.nz);
 
-    if (id !== this.rebuildId) return;
+    if (id !== this._.rebuildId) return;
 
     tile.geometry = this.buildTileGeometry(pos, tile.heightData);
 
@@ -343,7 +344,7 @@ export default class Terrain {
     onTileRebuilded(this.levelNumber, tile, oldObject);
     // }
 
-    TILE_SEAMS[side].map(seam => this.seam(id, seam));
+    TILE_SEAMS[side].map(this.seam);
   }
 
   buildTileGeometry(pos: TilePos, heightData) {
@@ -374,13 +375,13 @@ export default class Terrain {
     const { zoom } = this.params;
     const size = this.tileSegmentsCount;
 
-    return this.root.tilesStore.getTile(nx, nz, zoom, size);
+    return this._.tilesStore.getTile(nx, nz, zoom, size);
   }
 
   getTilePos(dx, dz): TilePos {
     const nx = this.tileNumber.x + dx;
     const nz = this.tileNumber.z + dz;
-    const { offset } = this.root;
+    const { offset } = this._;
 
     return {
       nx,
@@ -513,7 +514,7 @@ export default class Terrain {
   setTileMaterial(tile: TileState) {
     if (tile.material) return;
 
-    tile.material = this.root.params.material.clone();
+    tile.material = this._.params.material.clone();
     // tile.material.clippingPlanes = tile.clippingPlanes;
     // tile.material.clipIntersection = true;
   }
@@ -542,17 +543,18 @@ export default class Terrain {
     }
   };
 
-  async seam(id, seam) {
+  seam = async seam => {
     if (this.rebuildSeams[seam]) return;
 
     this.rebuildSeams[seam] = true;
 
+    const id = this._.rebuildId;
     const tilesSides = SEAM_TILES[seam];
 
     // await for tiles (that adjacent to this seam) to rebuild
     await Promise.all(tilesSides.map(side => this.rebuildPromises[side]));
 
-    if (id !== this.rebuildId) return;
+    if (id !== this._.rebuildId) return;
 
     const [tileA, tileB] = tilesSides.map(side => this.tileBySide[side]);
 
@@ -562,15 +564,17 @@ export default class Terrain {
     delete this.rebuildSeams[seam];
 
     if (!this.isRoot && ++this.seamsRebuilded === 4) {
-      this.seamToPrevLevel(id);
+      this.seamToPrevLevel();
     }
-  }
+  };
 
-  seamToPrevLevel(id) {
+  seamToPrevLevel() {
     let i = 0;
+    const id = this._.rebuildId;
     const tiles = this.tiles.flat();
+
     const flush = () => {
-      if (id !== this.rebuildId) return;
+      if (id !== this._.rebuildId) return;
       seamToPrevLevel(tiles[i], this);
       tiles[++i] ? flush() : this.computeVertexNormals();
       // requestAnimationFrame(tiles[++i] ? flush : this.computeVertexNormals);
